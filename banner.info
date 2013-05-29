@@ -1,0 +1,7 @@
+name = "Banner"
+description = "Add page banner settings of the content type and taxonomy."
+package = "Other"
+core = "7.x"
+dependencies[] = file
+dependencies[] = image
+configure = "admin/config/banner"

@@ -1,0 +1,362 @@
+<?php
+
+/**
+ * @file
+ * Implements the necessary hooks for the file browser to work properly.
+ */
+
+
+/**
+ * Implements hook_menu().
+ */
+function banner_menu() {
+  $items = array();
+
+  $items['admin/config/banner'] = array(
+    'title' => 'Banner',
+    'description' => 'Administer banner settings.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('banner_default_form'),
+    'access arguments' => array('administer banner edit'),
+    'file' => 'banner.admin.inc',
+  );
+  $items['admin/config/banner/default'] = array(
+    'title' => 'Default banner',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => 0,
+  );
+  $items['admin/config/banner/type'] = array(
+    'title' => 'Content type banner',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('banner_content_type_form'),
+    'access arguments' => array('administer banner edit'),
+    'file' => 'banner.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 1,
+  );
+  if (module_exists('taxonomy')) {
+    $items['admin/config/banner/taxonomy'] = array(
+      'title' => 'Taxonomy banner',
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('banner_taxonomy_form'),
+      'access arguments' => array('administer banner edit'),
+      'type' => MENU_LOCAL_TASK,
+      'weight' => 2,
+      'file' => 'banner.admin.inc',
+    );
+  }
+  $items['admin/config/banner/custom'] = array(
+    'title' => 'Custom banner',
+    'description' => 'Configure custom banner.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('banner_custom_form_callback'),
+    'access arguments' => array('administer banner edit'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 3,
+    'file' => 'banner.admin.inc',
+  );
+  $items['admin/config/banner/custom/add'] = array(
+    'title' => 'Add custom banner',
+    'description' => 'Add a new custom banner.',
+    'access arguments' => array('administer banner edit'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('banner_custom_add_form'),
+    'type' => MENU_LOCAL_ACTION,
+    'file' => 'banner.admin.inc',
+  );
+  $items['admin/config/banner/custom/edit'] = array(
+    'title' => 'Edit custom banner',
+    'description' => 'Edit a custom banner.',
+    'access arguments' => array('administer banner edit'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('banner_custom_edit_form'),
+    'type' => MENU_CALLBACK,
+    'file' => 'banner.admin.inc',
+  );
+  $items['admin/config/banner/custom/delete'] = array(
+    'title' => 'Delete custom banner',
+    'description' => 'Delete a custom banner.',
+    'access arguments' => array('administer banner edit'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('banner_custom_delete_confirm'),
+    'type' => MENU_CALLBACK,
+    'file' => 'banner.admin.inc',
+  );
+  $items['admin/config/banner/settings'] = array(
+    'title' => 'Settings',
+    'description' => 'Configure Banner.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('banner_image_admin_settings_form'),
+    'access arguments' => array('administer banner settings'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 4,
+    'file' => 'banner.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_perm().
+ */
+function banner_permission() {
+  return array(
+    'administer banner edit' => array(
+      'title' => t('Administer banner edit'),
+      'restrict access' => TRUE,
+    ),
+    'administer banner settings' => array(
+      'title' => t('Administer banner settings'),
+      'restrict access' => TRUE,
+    ),
+  );
+}
+
+/**
+ * Implements hook_theme().
+ */
+function banner_theme() {
+  return array(
+    'custom_banner_rules_order' => array(
+      'render element' => 'element',
+    	'file' => 'banner.admin.inc',
+    ),
+  );
+}
+
+/**
+ * Load all custom banner from the database.
+ */
+function custom_banner_load_all() {
+  $query = db_query('SELECT * FROM {banner_rules} ORDER BY rid')->fetchAllAssoc('rid');
+  
+  return $query;
+}
+
+/**
+ * Handles form submission for banner_custom_form() for set file status to permanent.
+ */
+function banner_custom_file_set_status($form, &$form_state) {
+  banner_file_set_status($form_state['values']['banner_path'], FILE_STATUS_PERMANENT);
+}
+
+/**
+ * Validate the file on file usage table.
+ */
+function banner_custom_file_set_usage($form, &$form_state) {
+  banner_file_set_usage($form_state['values']['banner_path']);
+}
+
+/**
+ * Element validate callback for the file destination field.
+ *
+ * Remove slashes from the beginning and end of the destination value and ensure
+ * that the file directory path is not included at the beginning of the value.
+ */
+function _banner_image_settings_file_directory_validate($element, &$form_state) {
+  $value = trim($element['#value'], '\\/');
+  form_set_value($element, $value, $form_state);
+}
+
+/**
+ * Element validate callback for the allowed file extensions field.
+ *
+ * This doubles as a convenience clean-up function and a validation routine.
+ * Commas are allowed by the end-user, but ultimately the value will be stored
+ * as a space-separated list for compatibility with file_validate_extensions().
+ */
+function _banner_image_settings_extensions($element, &$form_state) {
+  if (!empty($element['#value'])) {
+    $extensions = preg_replace('/([, ]+\.?)/', ' ', trim(strtolower($element['#value'])));
+    $extensions = array_filter(explode(' ', $extensions));
+    $extensions = implode(' ', array_unique($extensions));
+    if (!preg_match('/^([a-z0-9]+([.][a-z0-9])* ?)+$/', $extensions)) {
+      form_error($element, t('The list of allowed extensions is not valid, be sure to exclude leading dots and to separate extensions with a comma or space.'));
+    }
+    else {
+      form_set_value($element, $extensions, $form_state);
+    }
+  }
+}
+
+/**
+ * Element validate function for resolution fields.
+ */
+function _banner_image_settings_resolution_validate($element, &$form_state) {
+  $elem = substr($element['#parents'][0], 0, 4);
+  if (!empty($element[$elem .'x']['#value']) || !empty($element[$elem .'y']['#value'])) {
+    foreach (array('x', 'y') as $dimension) {
+      $value = $element[$elem . $dimension]['#value'];
+      if (!is_numeric($value)) {
+        form_error($element[$elem .$dimension], t('Height and width values must be numeric.'));
+        return;
+      }
+      if (intval($value) == 0) {
+        form_error($element[$elem . $dimension], t('Both a height and width value must be specified in the !name field.', array('!name' => $element['#title'])));
+        return;
+      }
+    }
+    form_set_value($element, intval($element[$elem .'x']['#value']) . 'x' . intval($element[$elem .'y']['#value']), $form_state);
+  }
+  else {
+    form_set_value($element, '', $form_state);
+  }
+}
+
+/**
+ * Element validate callback for the maximum upload size field.
+ *
+ * Ensure a size that can be parsed by parse_size() has been entered.
+ */
+function _banner_image_settings_max_filesize($element, &$form_state) {
+  if (!empty($element['#value']) && !is_numeric(parse_size($element['#value']))) {
+    form_error($element, t('The "!name" option must contain a valid value. You may either leave the text field empty or enter a string like "512" (bytes), "80 KB" (kilobytes) or "50 MB" (megabytes).', array('!name' => t($element['title']))));
+  }
+}
+
+/**
+ * Submit callback for Image settings.
+ */
+function banner_image_settings_submit($form, &$form_state) {
+  // Save confighuration data.
+  $variables = array(
+    'style_name' => $form_state['values']['style_name'],
+    'file_directory' => $form_state['values']['file_directory'],
+    'file_extensions' => $form_state['values']['file_extensions'],
+    'max_resolution' => $form_state['values']['max_resolution'],
+    'min_resolution' => $form_state['values']['min_resolution'],
+    'max_filesize' => $form_state['values']['max_filesize'],
+  );
+  variable_set('banner_image_settings', $variables);
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function banner_block_info() {
+  // Add banner block for the website.
+  $blocks = array();
+  $blocks['banner'] = array(
+    'info' => 'Banner (module: banner)',
+    'cache' => DRUPAL_NO_CACHE,
+  );
+  
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function banner_block_view($delta = '') {
+  $output = '';
+  switch ($delta) {
+  	case 'banner':
+  		// Set the banner by the rule.
+      $file = banner_set($_GET['q'], 'banner');
+      $banner_image	= file_get_object($file);
+      $banner_image_uri = $banner_image['uri'];
+      if (isset($banner_image_uri)) {
+        $variables = variable_get('banner_image_settings');
+        if ($variables['style_name']) {
+          $banner_image_uri = image_style_path($variables['style_name'], $banner_image_uri);
+        }
+        $url = str_replace('public:/', variable_get('file_public_path', conf_path() . '/files'), $banner_image_uri);
+        $attributes['path'] = $url;
+        $image_info = @getimagesize($banner_image_uri);
+        if ($image_info) {
+          $attributes['width'] = $image_info[0];
+          $attributes['height'] = $image_info[1];
+        }
+      	$output .= theme('image', $attributes);
+      }
+      // Add add|edit link.
+      if (user_access('administer banner edit')) {
+        $banner_edit_links	= banner_set($_GET['q'], 'banner_edit_links');
+      	$output	.= implode(' | ', $banner_edit_links);
+      }
+  	  break;
+  	
+  	default:
+    	break;
+  }
+  $block['content'] = $output;
+
+  return $block;
+}
+
+/**
+ * Get the banner by the arguments.
+ */
+function banner_set($path, $type = 'banner') {
+  if (!isset($path)) {
+    $path	= $_GET['q'];
+  }
+
+  $banner_active	= array();
+
+  // Get the custom banner data.
+  if (module_exists('banner')) {
+    global $language;
+    $lancode = $language->language;
+
+    $custom_banner	= custom_banner_load_all();
+    if (is_array($custom_banner) && count($custom_banner) > 0) {
+      foreach ($custom_banner as $banner) {
+        $banner_conditions	= unserialize($banner->conditions);
+        $banner_conditions	= explode('
+', $banner_conditions);
+        if (is_array($banner_conditions) && count($banner_conditions) > 0) {
+          foreach ($banner_conditions as $key => $item) {
+            $item = str_replace('/', '\/', $item);
+            $item = trim(str_replace('*', '(.*?)', $item));
+            // Set the active banner.
+            if (preg_match("/$item\b/",  $path)) {
+              $banner_active['banner']	= $banner->banner_path;
+              $banner_active['banner_edit_links'][]	= l(t('Edit Custom Banner'), 'admin/config/banner/custom/edit/' . $banner->rid, array('query' => array('destination' => $path)));
+              break;
+            } 
+          }
+        }
+      }
+    }
+
+    // Get the content type, taxonomy banner.
+    if (count($banner_active) == 0) {
+      $args	= explode('/', $path);
+      if ($args[0] == 'node' && isset($args[1]) && is_numeric($args[1])) {
+        $node	= node_load($args[1]);
+        $banner = variable_get('banner_file_'. $lancode .'_type_'. $node->type, '');
+        if (is_object($node) && $banner != '') {
+          $banner_active['banner']	= $banner;
+          $banner_active['banner_edit_links'][]	= l(t('Edit Content Type Banner'), 'admin/config/banner/type', array('query' => array('destination' => $path)));
+          $banner_active['banner_edit_links'][]	= l(t('Add Custom Banner'), 'admin/config/banner/custom/add', array('query' => array('destination' => $path)));
+        }
+      }
+      else if(module_exists('taxonomy')) {
+        if ($args[0] == 'taxonomy' && isset($args[1]) && is_object($taxonomy)) {
+          $taxonomy	= taxonomy_term_load($args[1]);
+          $banner = variable_get('banner_file_'. $lancode .'_taxo_'. $taxonomy->machine_name, '');
+          if ($banner != '') {
+            $banner_active['banner']	= $banner;
+            $banner_active['banner_edit_links'][]	= l(t('Edit Term Banner'), 'admin/config/banner/taxonomy', array('query' => array('destination' => $path)));
+            $banner_active['banner_edit_links'][]	= l(t('Add Custom Banner'), 'admin/config/banner/custom/add', array('query' => array('destination' => $path)));
+          }
+        }
+      }
+    }
+
+    // Get the default banner.
+    if (count($banner_active) == 0) {
+      $banner_active['banner'] = variable_get('banner_file_'. $lancode .'_default', '');
+      $banner_active['banner_edit_links'][] = l(t('Edit Default banner'), 'admin/config/banner', array('query' => array('destination' => $path)));
+      $banner_active['banner_edit_links'][] = l(t('Add Custom Banner'), 'admin/config/banner/custom/add', array('query' => array('destination' => $path)));
+    }
+  }
+
+  return $banner_active[$type];
+}
+
+function file_get_object($fid) {
+  $file_object	= db_query('SELECT * FROM {file_managed} WHERE fid = :fid', array(':fid' => $fid))->fetchAssoc();
+  return $file_object;
+}

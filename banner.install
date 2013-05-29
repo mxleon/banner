@@ -1,0 +1,122 @@
+<?php
+
+/**
+ * @file
+ * Contains install and update functions for the banner module.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function banner_schema() {
+  $schema['banner_rules'] = array(
+    'description' => 'Banner settings for conent type and taxonomy.',
+    'fields' => array(
+      'rid' => array(
+        'description' => 'The primary identifier for a rule.',
+        'type' => 'serial',
+        'not null' => TRUE,
+      ),
+      'admin_title' => array(
+        'description' => 'The administrative title of this rule.',
+        'type' => 'varchar',
+        'length' => 255,
+        'default' => NULL,
+      ),
+      'banner_path' => array(
+        'description' => 'The banner file path of this rule.',
+        'type' => 'varchar',
+        'length' => 255,
+        'default' => NULL,
+      ),
+      'conditions' => array(
+        'description' => 'The serialized conditions for this rule.',
+        'type' => 'text',
+        'serialize' => TRUE,
+      ),
+    ),
+    'primary key' => array('rid'),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_install().
+ */
+function banner_install() {
+  variable_set('banner_image_settings', 
+    array(
+      'style_name' => '',
+      'file_directory' => 'banner',
+      'file_extensions' => 'png gif jpg jpeg',
+      'max_resolution' => '',
+      'min_resolution' => '',
+      'max_filesize' => '',
+    )
+  );
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function banner_uninstall() {
+  $languages = language_list();
+  foreach ($languages as $lancode => $language) {
+
+    // Remove the default banner.
+    variable_del('banner_file_'. $lancode .'_default');
+
+    // Remove the all banners of the content type.
+    $node_types = node_type_get_types();
+    if (is_array($node_types) && count($node_types) > 0) {
+      foreach ($node_types as $node_type) {
+        variable_del('banner_file_'. $lancode .'_type_'. $node_type->type);
+      }
+    }
+
+    // Remove the all banners of the taxonomy.
+    if (module_exists('taxonomy')) {
+      $taxonomy_vocabularies = taxonomy_get_vocabularies();
+      if (is_array($taxonomy_vocabularies) && count($taxonomy_vocabularies) > 0) {
+        foreach ($taxonomy_vocabularies as $taxonomy) {
+          variable_del('banner_file_'. $lancode .'_taxo_'. $taxonomy->machine_name);
+        }
+      }
+    }
+  }
+
+  // Delete uploaded files.
+  $variables = variable_get('banner_image_settings');
+  $file_directory = $variables['file_directory'] ? $variables['file_directory'] : 'banner';
+  $filepath = file_build_uri($file_directory);
+  file_unmanaged_delete_recursive($filepath);
+
+  // Unset banner setting variables.
+  variable_del('banner_image_settings');
+
+  cache_clear_all();
+}
+
+/**
+ * Implements hook_enable().
+ */
+function banner_enable() {
+  // There is currently no way to manually flush an image style which causes
+  // problems when installing a new module that implements
+  // hook_image_styles_alter(). If the new module modifies an image style that
+  // modification will not be applied to any images that have already been
+  // generated unless the styles are flushed. This is one way around that.
+  $styles = image_styles();
+  foreach ($styles as $style) {
+    image_style_flush($style);
+  }
+}
+
+/**
+ * Implements hook_disable().
+ */
+function banner_disable() {
+  // Solves the same problem as banner_enable().
+  banner_enable();
+}
